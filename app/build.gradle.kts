@@ -17,6 +17,8 @@ android {
     versionCode = 1
     versionName = "1.0.0"
 
+    buildConfigField("String", "TARGET_URL", "\"https://indogram.gothwadtech.com\"")
+
     testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
   }
 
@@ -73,6 +75,7 @@ android {
 secrets {
   propertiesFileName = ".env"
   defaultPropertiesFileName = ".env.example"
+  ignoreList.add("TARGET_URL")
 }
 
 // Some unused dependencies are commented out below instead of being removed.

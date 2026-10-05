@@ -13,10 +13,10 @@ import androidx.core.app.NotificationCompat
 import androidx.core.app.NotificationManagerCompat
 import com.gothwad.indogram.MainActivity
 
-object GrixNotificationHelper {
-    private const val CHANNEL_ID = "grix_chat_notifications"
-    private const val CHANNEL_NAME = "GrixChat Notifications"
-    private const val CHANNEL_DESC = "Received chat messages and updates from GrixChat"
+object IndogramNotificationHelper {
+    private const val CHANNEL_ID = "indogram_chat_notifications"
+    private const val CHANNEL_NAME = "Indogram Notifications"
+    private const val CHANNEL_DESC = "Received chat messages and updates from Indogram"
     private const val NOTIFICATION_ID = 1001
 
     fun createNotificationChannel(context: Context) {

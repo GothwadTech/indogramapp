@@ -1,8 +1,8 @@
 package com.gothwad.indogram.utils
 
 import android.util.Log
-import com.gothwad.indogram.data.GrixDatabase
-import com.gothwad.indogram.data.GrixRepository
+import com.gothwad.indogram.data.IndogramDatabase
+import com.gothwad.indogram.data.IndogramRepository
 import com.google.firebase.messaging.FirebaseMessagingService
 import com.google.firebase.messaging.RemoteMessage
 import kotlinx.coroutines.CoroutineScope
@@ -12,20 +12,22 @@ import kotlinx.coroutines.launch
 
 class MyFirebaseMessagingService : FirebaseMessagingService() {
 
-    private val tag = "GrixFCMService"
+    private val tag = "IndogramFCMService"
     private val serviceScope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
 
     /**
      * Called when a new FCM token is generated or refreshed.
-     * This token must be saved to Supabase (via the WebApp client or an direct endpoint)
+     * This token must be saved to backend / web client
      */
     override fun onNewToken(token: String) {
         super.onNewToken(token)
         Log.d(tag, "Refreshed FCM Token: $token")
         
-        // Save the token locally so Javascript can fetch it via window.GrixApp.getPushToken()
-        val sharedPrefs = getSharedPreferences("grix_prefs", MODE_PRIVATE)
+        // Save the token locally so Javascript can fetch it via window.IndogramApp.getPushToken()
+        val sharedPrefs = getSharedPreferences("indogram_prefs", MODE_PRIVATE)
         sharedPrefs.edit().putString("fcm_token", token).apply()
+        // Backward compatibility
+        getSharedPreferences("grix_prefs", MODE_PRIVATE).edit().putString("fcm_token", token).apply()
     }
 
     /**
@@ -39,7 +41,6 @@ class MyFirebaseMessagingService : FirebaseMessagingService() {
         var title = remoteMessage.notification?.title
         var body = remoteMessage.notification?.body
 
-        // Supabase Edge Functions typically send a "data" payload to have maximum control over notifications
         if (remoteMessage.data.isNotEmpty()) {
             Log.d(tag, "Message data payload: ${remoteMessage.data}")
             if (title.isNullOrEmpty()) {
@@ -50,7 +51,7 @@ class MyFirebaseMessagingService : FirebaseMessagingService() {
             }
         }
 
-        val finalTitle = title ?: "GrixChat Message"
+        val finalTitle = title ?: "Indogram Message"
         val finalBody = body ?: "You have received a new message."
 
         Log.d(tag, "Displaying notification: Title=$finalTitle, Body=$finalBody")
@@ -59,14 +60,14 @@ class MyFirebaseMessagingService : FirebaseMessagingService() {
         saveNotificationToLocalDb(finalTitle, finalBody)
 
         // 3. Show native system notification banner
-        GrixNotificationHelper.showNotification(applicationContext, finalTitle, finalBody)
+        IndogramNotificationHelper.showNotification(applicationContext, finalTitle, finalBody)
     }
 
     private fun saveNotificationToLocalDb(title: String, message: String) {
         serviceScope.launch {
             try {
-                val db = GrixDatabase.getDatabase(applicationContext)
-                val repository = GrixRepository(db.grixDao())
+                val db = IndogramDatabase.getDatabase(applicationContext)
+                val repository = IndogramRepository(db.indogramDao())
                 repository.saveNotification(title, message)
             } catch (e: Exception) {
                 Log.e(tag, "Failed to persist notification in Room DB", e)

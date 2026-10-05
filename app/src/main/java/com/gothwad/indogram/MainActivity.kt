@@ -43,13 +43,13 @@ import androidx.compose.ui.viewinterop.AndroidView
 import androidx.core.content.ContextCompat
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.lifecycle.viewmodel.compose.viewModel
-import com.gothwad.indogram.data.GrixDatabase
-import com.gothwad.indogram.data.GrixRepository
-import com.gothwad.indogram.ui.GrixViewModel
-import com.gothwad.indogram.ui.GrixViewModelFactory
-import com.gothwad.indogram.ui.GrixJavascriptInterface
+import com.gothwad.indogram.data.IndogramDatabase
+import com.gothwad.indogram.data.IndogramRepository
+import com.gothwad.indogram.ui.IndogramViewModel
+import com.gothwad.indogram.ui.IndogramViewModelFactory
+import com.gothwad.indogram.ui.IndogramJavascriptInterface
 import com.gothwad.indogram.ui.theme.MyApplicationTheme
-import com.gothwad.indogram.utils.GrixNotificationHelper
+import com.gothwad.indogram.utils.IndogramNotificationHelper
 
 class MainActivity : ComponentActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
@@ -81,11 +81,11 @@ class MainActivity : ComponentActivity() {
         }
 
         // Create the notification channels on launch
-        GrixNotificationHelper.createNotificationChannel(applicationContext)
+        IndogramNotificationHelper.createNotificationChannel(applicationContext)
 
         // Setup repository
-        val database = GrixDatabase.getDatabase(applicationContext)
-        val repository = GrixRepository(database.grixDao())
+        val database = IndogramDatabase.getDatabase(applicationContext)
+        val repository = IndogramRepository(database.indogramDao())
 
         // Fetch Real Firebase token asynchronously on launch
         try {
@@ -94,7 +94,7 @@ class MainActivity : ComponentActivity() {
                     val options = com.google.firebase.FirebaseOptions.Builder()
                         .setApplicationId("1:1234567890:android:e1234567890abcdef") // Fallback placeholder
                         .setApiKey("placeholder-api-key-to-allow-init")
-                        .setProjectId("grixchatlite-placeholder")
+                        .setProjectId("indogram-placeholder")
                         .build()
                     com.google.firebase.FirebaseApp.initializeApp(applicationContext, options)
                 }
@@ -109,7 +109,7 @@ class MainActivity : ComponentActivity() {
                     if (task.isSuccessful) {
                         val token = task.result
                         android.util.Log.d("MainActivity", "Successfully retrieved initial FCM token: $token")
-                        val sharedPrefs = getSharedPreferences("grix_prefs", android.content.Context.MODE_PRIVATE)
+                        val sharedPrefs = getSharedPreferences("indogram_prefs", android.content.Context.MODE_PRIVATE)
                         sharedPrefs.edit().putString("fcm_token", token).apply()
                     } else {
                         android.util.Log.w("MainActivity", "Fetching FCM registration token failed", task.exception)
@@ -121,11 +121,11 @@ class MainActivity : ComponentActivity() {
         }
 
         setContent {
-            val grixViewModel: GrixViewModel = viewModel(
-                factory = GrixViewModelFactory(application, repository)
+            val indogramViewModel: IndogramViewModel = viewModel(
+                factory = IndogramViewModelFactory(application, repository)
             )
 
-            val isDarkThemeOverride by grixViewModel.isDarkThemeOverride.collectAsStateWithLifecycle()
+            val isDarkThemeOverride by indogramViewModel.isDarkThemeOverride.collectAsStateWithLifecycle()
             val systemIsDark = isSystemInDarkTheme()
             val useDarkTheme = isDarkThemeOverride ?: systemIsDark
 
@@ -134,7 +134,7 @@ class MainActivity : ComponentActivity() {
                     modifier = Modifier.fillMaxSize(),
                     color = MaterialTheme.colorScheme.background
                 ) {
-                    GrixChatScreen(viewModel = grixViewModel, isDarkTheme = useDarkTheme)
+                    IndogramChatScreen(viewModel = indogramViewModel, isDarkTheme = useDarkTheme)
                 }
             }
         }
@@ -143,7 +143,7 @@ class MainActivity : ComponentActivity() {
 
 @SuppressLint("SetJavaScriptEnabled")
 @Composable
-fun GrixChatScreen(viewModel: GrixViewModel, isDarkTheme: Boolean) {
+fun IndogramChatScreen(viewModel: IndogramViewModel, isDarkTheme: Boolean) {
     val context = LocalContext.current
     val isOnline by viewModel.isOnline.collectAsStateWithLifecycle()
     val isError by viewModel.isWebViewError.collectAsStateWithLifecycle()
@@ -185,7 +185,7 @@ fun GrixChatScreen(viewModel: GrixViewModel, isDarkTheme: Boolean) {
         }
     }
 
-    // Request setup for all essential device permissions on startup (Notifications, Camera, Microphone, Location, Contacts) except storage/photos to prevent annoying popup
+    // Request setup for all essential device permissions on startup
     val permissionsLauncher = rememberLauncherForActivityResult(
         contract = ActivityResultContracts.RequestMultiplePermissions()
     ) { results ->
@@ -226,409 +226,402 @@ fun GrixChatScreen(viewModel: GrixViewModel, isDarkTheme: Boolean) {
             .fillMaxSize()
             .background(MaterialTheme.colorScheme.background)
     ) {
-        // Solid Status Bar with theme matching background so the web content does not overlap
-            Spacer(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .windowInsetsTopHeight(WindowInsets.statusBars)
-                    .background(MaterialTheme.colorScheme.background)
-            )
+        // Solid Status Bar with theme matching background
+        Spacer(
+            modifier = Modifier
+                .fillMaxWidth()
+                .windowInsetsTopHeight(WindowInsets.statusBars)
+                .background(MaterialTheme.colorScheme.background)
+        )
 
-            // Web view / offline core screen area
-            Box(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .weight(1f)
-            ) {
-                if (!isError) {
-                    // Full-screen WebView sitting precisely in the safe frame
-                    AndroidView(
-                        factory = { ctx ->
-                            WebView(ctx).apply {
-                                layoutParams = ViewGroup.LayoutParams(
-                                    ViewGroup.LayoutParams.MATCH_PARENT,
-                                    ViewGroup.LayoutParams.MATCH_PARENT
-                                )
+        // Web view / offline core screen area
+        Box(
+            modifier = Modifier
+                .fillMaxWidth()
+                .weight(1f)
+        ) {
+            if (!isError) {
+                // Full-screen WebView sitting precisely in the safe frame
+                AndroidView(
+                    factory = { ctx ->
+                        WebView(ctx).apply {
+                            layoutParams = ViewGroup.LayoutParams(
+                                ViewGroup.LayoutParams.MATCH_PARENT,
+                                ViewGroup.LayoutParams.MATCH_PARENT
+                            )
+                            
+                            // Enable hardware acceleration for high-end rendering
+                            setLayerType(android.view.View.LAYER_TYPE_HARDWARE, null)
+
+                            // Synchronously compute current connectivity
+                            val connectivityManager = ctx.getSystemService(Context.CONNECTIVITY_SERVICE) as android.net.ConnectivityManager
+                            val activeNetwork = connectivityManager.activeNetwork
+                            val capabilities = connectivityManager.getNetworkCapabilities(activeNetwork)
+                            val actuallyOnline = capabilities?.hasCapability(android.net.NetworkCapabilities.NET_CAPABILITY_INTERNET) == true
+
+                            // Performance and database caching parameters
+                            settings.apply {
+                                javaScriptEnabled = true
+                                domStorageEnabled = true
+                                allowFileAccess = true
+                                allowContentAccess = true
+                                setGeolocationEnabled(true)
+                                loadsImagesAutomatically = true
+                                useWideViewPort = true
+                                loadWithOverviewMode = false
+                                mixedContentMode = WebSettings.MIXED_CONTENT_COMPATIBILITY_MODE
+                                textZoom = 100
+                                mediaPlaybackRequiresUserGesture = false
                                 
-                                // Enable hardware acceleration for high-end rendering (e.g. CSS glassmorphism, backdrop filters)
-                                setLayerType(android.view.View.LAYER_TYPE_HARDWARE, null)
+                                // Handle dynamic dark mode / light mode selection
+                                if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
+                                    try {
+                                        isAlgorithmicDarkeningAllowed = isDarkTheme
+                                    } catch (e: Exception) {
+                                        android.util.Log.e("MainActivity", "Failed to set algorithmic darkening", e)
+                                    }
+                                }
+                                if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
+                                    try {
+                                        @Suppress("DEPRECATION")
+                                        forceDark = if (isDarkTheme) {
+                                            WebSettings.FORCE_DARK_ON
+                                        } else {
+                                            WebSettings.FORCE_DARK_OFF
+                                        }
+                                    } catch (e: Exception) {
+                                        android.util.Log.e("MainActivity", "Failed to set force dark", e)
+                                    }
+                                }
 
-                                // Synchronously compute current connectivity to bypass race conditions on first frame
-                                val connectivityManager = ctx.getSystemService(Context.CONNECTIVITY_SERVICE) as android.net.ConnectivityManager
-                                val activeNetwork = connectivityManager.activeNetwork
-                                val capabilities = connectivityManager.getNetworkCapabilities(activeNetwork)
-                                val actuallyOnline = capabilities?.hasCapability(android.net.NetworkCapabilities.NET_CAPABILITY_INTERNET) == true
+                                cacheMode = if (actuallyOnline) {
+                                    WebSettings.LOAD_DEFAULT
+                                } else {
+                                    WebSettings.LOAD_CACHE_ELSE_NETWORK
+                                }
 
-                                // Performance and database caching parameters
-                                settings.apply {
-                                    javaScriptEnabled = true
-                                    domStorageEnabled = true
-                                    allowFileAccess = true
-                                    allowContentAccess = true
-                                    setGeolocationEnabled(true) // Enable Web Geolocation support
-                                    loadsImagesAutomatically = true
-                                    useWideViewPort = true
-                                    loadWithOverviewMode = false // Prevent forced zoom-out overview scaling which breaks mobile responsive styling
-                                    mixedContentMode = WebSettings.MIXED_CONTENT_COMPATIBILITY_MODE
-                                    textZoom = 100 // Enforce default font scale; prevents system accessibility settings from scrambling column layout
-                                    mediaPlaybackRequiresUserGesture = false // Crucial: allows WebRTC / camera video stream to play automatically without showing a play button
+                                // Bypass Google OAuth "disallowed_useragent" block
+                                val defaultUA = userAgentString
+                                val customizedUA = defaultUA
+                                    .replace("; wv", "")
+                                    .replace("Version/\\d+\\.\\d+\\s".toRegex(), "")
+                                    .replace("Version/\\d+\\.\\d+".toRegex(), "")
+                                userAgentString = if (customizedUA.isNotEmpty() && customizedUA != defaultUA) {
+                                    customizedUA
+                                } else {
+                                    "Mozilla/5.0 (Linux; Android 13; K) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Mobile Safari/537.36"
+                                }
+                            }
+
+                            // Enable Cookies including third-party cookies
+                            val webViewCurrent = this
+                            try {
+                                CookieManager.getInstance().apply {
+                                    setAcceptCookie(true)
+                                    setAcceptThirdPartyCookies(webViewCurrent, true)
+                                }
+                            } catch (e: Exception) {
+                                // Guard against rare system webview cookie manager failures
+                            }
+
+                            webViewClient = object : WebViewClient() {
+                                override fun onPageStarted(view: WebView?, url: String?, favicon: Bitmap?) {
+                                    super.onPageStarted(view, url, favicon)
+                                    viewModel.setLoadProgress(15)
+                                }
+
+                                override fun onPageFinished(view: WebView?, url: String?) {
+                                    super.onPageFinished(view, url)
+                                    viewModel.setLoadProgress(100)
                                     
-                                    // Handle dynamic dark mode / light mode selection based on system theme
-                                    if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
-                                        try {
-                                            isAlgorithmicDarkeningAllowed = isDarkTheme
-                                        } catch (e: Exception) {
-                                            android.util.Log.e("MainActivity", "Failed to set algorithmic darkening", e)
-                                        }
-                                    }
-                                    if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
-                                        try {
-                                            @Suppress("DEPRECATION")
-                                            forceDark = if (isDarkTheme) {
-                                                WebSettings.FORCE_DARK_ON
-                                            } else {
-                                                WebSettings.FORCE_DARK_OFF
-                                            }
-                                        } catch (e: Exception) {
-                                            android.util.Log.e("MainActivity", "Failed to set force dark", e)
-                                        }
-                                    }
-
-                                    cacheMode = if (actuallyOnline) {
-                                        WebSettings.LOAD_DEFAULT
-                                    } else {
-                                        WebSettings.LOAD_CACHE_ELSE_NETWORK
-                                    }
-
-                                    // Bypass Google OAuth "disallowed_useragent" block
-                                    // By removing "Version/X.X" and "; wv", we simulate a clean, standard Chrome mobile browser.
-                                    val defaultUA = userAgentString
-                                    val customizedUA = defaultUA
-                                        .replace("; wv", "")
-                                        .replace("Version/\\d+\\.\\d+\\s".toRegex(), "")
-                                        .replace("Version/\\d+\\.\\d+".toRegex(), "")
-                                    userAgentString = if (customizedUA.isNotEmpty() && customizedUA != defaultUA) {
-                                        customizedUA
-                                    } else {
-                                        "Mozilla/5.0 (Linux; Android 13; K) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Mobile Safari/537.36"
-                                    }
-                                }
-
-                                // Enable Cookies including third-party cookies (essential for Google Auth / iframe identity tools)
-                                val webViewCurrent = this
-                                try {
-                                    CookieManager.getInstance().apply {
-                                        setAcceptCookie(true)
-                                        setAcceptThirdPartyCookies(webViewCurrent, true)
-                                    }
-                                } catch (e: Exception) {
-                                    // Guard against rare system webview cookie manager failures
-                                }
-
-                                webViewClient = object : WebViewClient() {
-                                    override fun onPageStarted(view: WebView?, url: String?, favicon: Bitmap?) {
-                                        super.onPageStarted(view, url, favicon)
-                                        viewModel.setLoadProgress(15)
-                                    }
-
-                                    override fun onPageFinished(view: WebView?, url: String?) {
-                                        super.onPageFinished(view, url)
-                                        viewModel.setLoadProgress(100)
-                                        
-                                        // Inject an observer/evaluator script to capture and mirror website light/dark theme toggle triggers
-                                        view?.evaluateJavascript(
-                                            """
-                                            (function() {
-                                                function checkAndUpdateTheme() {
-                                                    var isDark = false;
-                                                    
-                                                    // 1. Check for standard Tailwind/Next/Bootstrap dark mode class lists or data attributes
-                                                    if (document.documentElement.classList.contains('dark') || 
-                                                        document.body.classList.contains('dark') ||
-                                                        document.documentElement.getAttribute('data-theme') === 'dark' ||
-                                                        document.body.getAttribute('data-theme') === 'dark' ||
-                                                        document.documentElement.classList.contains('theme-dark') ||
-                                                        document.body.classList.contains('theme-dark')) {
-                                                        isDark = true;
-                                                    } else {
-                                                        // 2. Fallback: Luma-based analysis of body background color for un-annotated dark themes
-                                                        try {
-                                                            var bg = window.getComputedStyle(document.body).backgroundColor;
-                                                            if (bg && bg !== 'rgba(0, 0, 0, 0)' && bg !== 'transparent') {
-                                                                var rgb = bg.match(/\d+/g);
-                                                                if (rgb && rgb.length >= 3) {
-                                                                    var r = parseInt(rgb[0]);
-                                                                    var g = parseInt(rgb[1]);
-                                                                    var b = parseInt(rgb[2]);
-                                                                    var luma = (r * 299 + g * 587 + b * 114) / 1000;
-                                                                    if (luma < 120) {
-                                                                        isDark = true;
-                                                                    }
+                                    // Inject an observer/evaluator script to capture theme toggle triggers
+                                    view?.evaluateJavascript(
+                                        """
+                                        (function() {
+                                            function checkAndUpdateTheme() {
+                                                var isDark = false;
+                                                
+                                                if (document.documentElement.classList.contains('dark') || 
+                                                    document.body.classList.contains('dark') ||
+                                                    document.documentElement.getAttribute('data-theme') === 'dark' ||
+                                                    document.body.getAttribute('data-theme') === 'dark' ||
+                                                    document.documentElement.classList.contains('theme-dark') ||
+                                                    document.body.classList.contains('theme-dark')) {
+                                                    isDark = true;
+                                                } else {
+                                                    try {
+                                                        var bg = window.getComputedStyle(document.body).backgroundColor;
+                                                        if (bg && bg !== 'rgba(0, 0, 0, 0)' && bg !== 'transparent') {
+                                                            var rgb = bg.match(/\d+/g);
+                                                            if (rgb && rgb.length >= 3) {
+                                                                var r = parseInt(rgb[0]);
+                                                                var g = parseInt(rgb[1]);
+                                                                var b = parseInt(rgb[2]);
+                                                                var luma = (r * 299 + g * 587 + b * 114) / 1000;
+                                                                if (luma < 120) {
+                                                                    isDark = true;
                                                                 }
                                                             }
-                                                        } catch(e) {}
-                                                    }
-                                                    
-                                                    if (window.GrixApp && window.GrixApp.setTheme) {
-                                                        window.GrixApp.setTheme(isDark);
-                                                    }
+                                                        }
+                                                    } catch(e) {}
                                                 }
                                                 
-                                                // Execute immediately on finish
-                                                checkAndUpdateTheme();
-                                                
-                                                // Create a DOM MutationObserver to dynamically react to client-side switch toggles
-                                                try {
-                                                    var themeObserver = new MutationObserver(function() {
-                                                        checkAndUpdateTheme();
-                                                    });
-                                                    themeObserver.observe(document.documentElement, { attributes: true, attributeFilter: ['class', 'data-theme'] });
-                                                    if (document.body) {
-                                                        themeObserver.observe(document.body, { attributes: true, attributeFilter: ['class', 'data-theme'] });
-                                                    }
-                                                } catch(err) {}
-                                            })();
-                                            """.trimIndent(),
-                                            null
-                                        )
-                                    }
+                                                if (window.IndogramApp && window.IndogramApp.setTheme) {
+                                                    window.IndogramApp.setTheme(isDark);
+                                                } else if (window.GrixApp && window.GrixApp.setTheme) {
+                                                    window.GrixApp.setTheme(isDark);
+                                                }
+                                            }
+                                            
+                                            checkAndUpdateTheme();
+                                            
+                                            try {
+                                                var themeObserver = new MutationObserver(function() {
+                                                    checkAndUpdateTheme();
+                                                });
+                                                themeObserver.observe(document.documentElement, { attributes: true, attributeFilter: ['class', 'data-theme'] });
+                                                if (document.body) {
+                                                    themeObserver.observe(document.body, { attributes: true, attributeFilter: ['class', 'data-theme'] });
+                                                }
+                                            } catch(err) {}
+                                        })();
+                                        """.trimIndent(),
+                                        null
+                                    )
+                                }
 
-                                    override fun onReceivedError(
-                                        view: WebView?,
-                                        request: WebResourceRequest?,
-                                        error: WebResourceError?
-                                    ) {
-                                        if (request?.isForMainFrame == true) {
-                                            viewModel.setWebViewError(true)
-                                        }
-                                    }
-
-                                    @Suppress("OVERRIDE_DEPRECATION")
-                                    override fun onReceivedError(
-                                        view: WebView?,
-                                        errorCode: Int,
-                                        description: String?,
-                                        failingUrl: String?
-                                    ) {
-                                        if (failingUrl != null && failingUrl.trimEnd('/').equals(viewModel.targetUrl.trimEnd('/'), ignoreCase = true)) {
-                                            viewModel.setWebViewError(true)
-                                        }
+                                override fun onReceivedError(
+                                    view: WebView?,
+                                    request: WebResourceRequest?,
+                                    error: WebResourceError?
+                                ) {
+                                    if (request?.isForMainFrame == true) {
+                                        viewModel.setWebViewError(true)
                                     }
                                 }
 
-                                webChromeClient = object : WebChromeClient() {
-                                    override fun onProgressChanged(view: WebView?, newProgress: Int) {
-                                        super.onProgressChanged(view, newProgress)
-                                        viewModel.setLoadProgress(newProgress)
+                                @Suppress("OVERRIDE_DEPRECATION")
+                                override fun onReceivedError(
+                                    view: WebView?,
+                                    errorCode: Int,
+                                    description: String?,
+                                    failingUrl: String?
+                                ) {
+                                    if (failingUrl != null && failingUrl.trimEnd('/').equals(viewModel.targetUrl.trimEnd('/'), ignoreCase = true)) {
+                                        viewModel.setWebViewError(true)
                                     }
+                                }
+                            }
 
-                                    override fun onPermissionRequest(request: PermissionRequest?) {
-                                        // Grant requested camera/audio/etc permission requests inside the WebView
-                                        try {
-                                            request?.grant(request?.resources ?: emptyArray())
-                                        } catch (e: Exception) {
-                                            android.util.Log.e("MainActivity", "WebRTC grant permission error", e)
-                                        }
+                            webChromeClient = object : WebChromeClient() {
+                                override fun onProgressChanged(view: WebView?, newProgress: Int) {
+                                    super.onProgressChanged(view, newProgress)
+                                    viewModel.setLoadProgress(newProgress)
+                                }
+
+                                override fun onPermissionRequest(request: PermissionRequest?) {
+                                    try {
+                                        request?.grant(request?.resources ?: emptyArray())
+                                    } catch (e: Exception) {
+                                        android.util.Log.e("MainActivity", "WebRTC grant permission error", e)
                                     }
+                                }
 
-                                    override fun onGeolocationPermissionsShowPrompt(
-                                        origin: String?,
-                                        callback: GeolocationPermissions.Callback?
-                                    ) {
-                                        // Auto-approve the WebView-level request since OS-level permissions protect the user
-                                        callback?.invoke(origin, true, false)
-                                    }
+                                override fun onGeolocationPermissionsShowPrompt(
+                                    origin: String?,
+                                    callback: GeolocationPermissions.Callback?
+                                ) {
+                                    callback?.invoke(origin, true, false)
+                                }
 
-                                     override fun onShowFileChooser(
-                                        webView: WebView?,
-                                        filePathCallback: ValueCallback<Array<Uri>>?,
-                                        fileChooserParams: FileChooserParams?
-                                    ): Boolean {
-                                        customFilePathCallback?.onReceiveValue(null)
-                                        customFilePathCallback = filePathCallback
-                                        
-                                        try {
-                                            val intent = fileChooserParams?.createIntent()
-                                            if (intent != null) {
-                                                fileChooserLauncher.launch(intent)
-                                            } else {
-                                                filePathCallback?.onReceiveValue(null)
-                                                customFilePathCallback = null
-                                                return false
-                                            }
-                                        } catch (e: Exception) {
+                                override fun onShowFileChooser(
+                                    webView: WebView?,
+                                    filePathCallback: ValueCallback<Array<Uri>>?,
+                                    fileChooserParams: FileChooserParams?
+                                ): Boolean {
+                                    customFilePathCallback?.onReceiveValue(null)
+                                    customFilePathCallback = filePathCallback
+                                    
+                                    try {
+                                        val intent = fileChooserParams?.createIntent()
+                                        if (intent != null) {
+                                            fileChooserLauncher.launch(intent)
+                                        } else {
                                             filePathCallback?.onReceiveValue(null)
                                             customFilePathCallback = null
                                             return false
                                         }
-                                        return true
+                                    } catch (e: Exception) {
+                                        filePathCallback?.onReceiveValue(null)
+                                        customFilePathCallback = null
+                                        return false
                                     }
-                                }
-
-                                // Inject JS push notification / token channel to match website capabilities
-                                addJavascriptInterface(
-                                    GrixJavascriptInterface(ctx, viewModel),
-                                    "GrixApp"
-                                )
-
-                                loadUrl(viewModel.targetUrl)
-                                webViewInstance = this
-                            }
-                        },
-                        update = { webView ->
-                            webView.settings.cacheMode = if (isOnline) {
-                                WebSettings.LOAD_DEFAULT
-                            } else {
-                                WebSettings.LOAD_CACHE_ELSE_NETWORK
-                            }
-                            
-                             // Dynamic theme update for WebView
-                             if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
-                                 try {
-                                     webView.settings.isAlgorithmicDarkeningAllowed = isDarkTheme
-                                 } catch (e: Exception) {
-                                     // ignore 
-                                 }
-                             }
-                             if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
-                                 try {
-                                     @Suppress("DEPRECATION")
-                                     webView.settings.forceDark = if (isDarkTheme) {
-                                         WebSettings.FORCE_DARK_ON
-                                     } else {
-                                         WebSettings.FORCE_DARK_OFF
-                                     }
-                                 } catch (e: Exception) {
-                                     // ignore
-                                 }
-                             }
-
-                            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.N) {
-                                try {
-                                    val swController = ServiceWorkerController.getInstance()
-                                    swController.serviceWorkerWebSettings.cacheMode = if (isOnline) {
-                                        WebSettings.LOAD_DEFAULT
-                                    } else {
-                                        WebSettings.LOAD_CACHE_ELSE_NETWORK
-                                    }
-                                } catch (e: Exception) {
-                                    // Ignore failures in updating process-global SW settings
+                                    return true
                                 }
                             }
-                            if (isOnline && isError) {
-                                viewModel.setWebViewError(false)
-                                webView.loadUrl(viewModel.targetUrl)
-                            }
-                        },
-                        modifier = Modifier
-                            .fillMaxSize()
-                            .testTag("grix_webview_panel")
-                    )
 
-                    // Elegantly fade-out loading spinner overlay on page transitions
-                    androidx.compose.animation.AnimatedVisibility(
-                        visible = progress < 100,
-                        enter = fadeIn(animationSpec = tween(200)),
-                        exit = fadeOut(animationSpec = tween(400))
-                    ) {
-                        Box(
-                            modifier = Modifier
-                                .fillMaxSize()
-                                .background(MaterialTheme.colorScheme.background.copy(alpha = 0.85f)),
-                            contentAlignment = Alignment.Center
-                        ) {
-                            CircularProgressIndicator(
-                                color = MaterialTheme.colorScheme.primary,
-                                strokeWidth = 4.dp,
-                                modifier = Modifier
-                                    .size(48.dp)
-                                    .testTag("page_loader_spinner")
-                            )
+                            // Inject JS push notification / token channel with IndogramApp & legacy GrixApp
+                            val jsInterface = IndogramJavascriptInterface(ctx, viewModel)
+                            addJavascriptInterface(jsInterface, "IndogramApp")
+                            addJavascriptInterface(jsInterface, "GrixApp")
+
+                            loadUrl(viewModel.targetUrl)
+                            webViewInstance = this
                         }
-                    }
-                } else {
-                    // Elegant offline recovery screen - minimalist theme matching
+                    },
+                    update = { webView ->
+                        webView.settings.cacheMode = if (isOnline) {
+                            WebSettings.LOAD_DEFAULT
+                        } else {
+                            WebSettings.LOAD_CACHE_ELSE_NETWORK
+                        }
+                        
+                        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
+                            try {
+                                webView.settings.isAlgorithmicDarkeningAllowed = isDarkTheme
+                            } catch (e: Exception) {
+                                // ignore 
+                            }
+                        }
+                        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
+                            try {
+                                @Suppress("DEPRECATION")
+                                webView.settings.forceDark = if (isDarkTheme) {
+                                    WebSettings.FORCE_DARK_ON
+                                } else {
+                                    WebSettings.FORCE_DARK_OFF
+                                }
+                            } catch (e: Exception) {
+                                // ignore
+                            }
+                        }
+
+                        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.N) {
+                            try {
+                                val swController = ServiceWorkerController.getInstance()
+                                swController.serviceWorkerWebSettings.cacheMode = if (isOnline) {
+                                    WebSettings.LOAD_DEFAULT
+                                } else {
+                                    WebSettings.LOAD_CACHE_ELSE_NETWORK
+                                }
+                            } catch (e: Exception) {
+                                // Ignore failures in updating process-global SW settings
+                            }
+                        }
+                        if (isOnline && isError) {
+                            viewModel.setWebViewError(false)
+                            webView.loadUrl(viewModel.targetUrl)
+                        }
+                    },
+                    modifier = Modifier
+                        .fillMaxSize()
+                        .testTag("indogram_webview_panel")
+                )
+
+                // Fade-out loading spinner overlay on page transitions
+                androidx.compose.animation.AnimatedVisibility(
+                    visible = progress < 100,
+                    enter = fadeIn(animationSpec = tween(200)),
+                    exit = fadeOut(animationSpec = tween(400))
+                ) {
                     Box(
                         modifier = Modifier
                             .fillMaxSize()
-                            .background(MaterialTheme.colorScheme.background)
-                            .padding(32.dp),
+                            .background(MaterialTheme.colorScheme.background.copy(alpha = 0.85f)),
                         contentAlignment = Alignment.Center
                     ) {
-                        Column(
-                            horizontalAlignment = Alignment.CenterHorizontally,
-                            verticalArrangement = Arrangement.spacedBy(16.dp)
-                        ) {
-                            Box(
-                                contentAlignment = Alignment.Center,
-                                modifier = Modifier
-                                    .size(80.dp)
-                                    .background(
-                                        color = MaterialTheme.colorScheme.primary.copy(alpha = 0.1f),
-                                        shape = RoundedCornerShape(20.dp)
-                                    )
-                            ) {
-                                Icon(
-                                    imageVector = Icons.Default.Warning,
-                                    contentDescription = "Offline Mode",
-                                    tint = MaterialTheme.colorScheme.primary,
-                                    modifier = Modifier.size(40.dp)
+                        CircularProgressIndicator(
+                            color = MaterialTheme.colorScheme.primary,
+                            strokeWidth = 4.dp,
+                            modifier = Modifier
+                                .size(48.dp)
+                                .testTag("page_loader_spinner")
+                        )
+                    }
+                }
+            } else {
+                // Offline recovery screen
+                Box(
+                    modifier = Modifier
+                        .fillMaxSize()
+                        .background(MaterialTheme.colorScheme.background)
+                        .padding(32.dp),
+                    contentAlignment = Alignment.Center
+                ) {
+                    Column(
+                        horizontalAlignment = Alignment.CenterHorizontally,
+                        verticalArrangement = Arrangement.spacedBy(16.dp)
+                    ) {
+                        Box(
+                            contentAlignment = Alignment.Center,
+                            modifier = Modifier
+                                .size(80.dp)
+                                .background(
+                                    color = MaterialTheme.colorScheme.primary.copy(alpha = 0.1f),
+                                    shape = RoundedCornerShape(20.dp)
                                 )
-                            }
-
-                            Text(
-                                text = "Connection Offline",
-                                fontSize = 20.sp,
-                                fontWeight = FontWeight.Bold,
-                                color = MaterialTheme.colorScheme.primary,
-                                textAlign = TextAlign.Center
+                        ) {
+                            Icon(
+                                imageVector = Icons.Default.Warning,
+                                contentDescription = "Offline Mode",
+                                tint = MaterialTheme.colorScheme.primary,
+                                modifier = Modifier.size(40.dp)
                             )
+                        }
 
-                            Text(
-                                text = "Make sure your Wi-Fi or cellular network is active and try reloading.",
-                                fontSize = 14.sp,
-                                color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.6f),
-                                textAlign = TextAlign.Center,
-                                lineHeight = 20.sp,
-                                modifier = Modifier.padding(horizontal = 16.dp)
-                            )
+                        Text(
+                            text = "Connection Offline",
+                            fontSize = 20.sp,
+                            fontWeight = FontWeight.Bold,
+                            color = MaterialTheme.colorScheme.primary,
+                            textAlign = TextAlign.Center
+                        )
 
-                            Spacer(modifier = Modifier.height(8.dp))
+                        Text(
+                            text = "Make sure your Wi-Fi or cellular network is active and try reloading.",
+                            fontSize = 14.sp,
+                            color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.6f),
+                            textAlign = TextAlign.Center,
+                            lineHeight = 20.sp,
+                            modifier = Modifier.padding(horizontal = 16.dp)
+                        )
 
-                            Button(
-                                onClick = {
-                                    viewModel.setWebViewError(false)
-                                    if (webViewInstance?.url.isNullOrBlank()) {
-                                        webViewInstance?.loadUrl(viewModel.targetUrl)
-                                    } else {
-                                        webViewInstance?.reload()
-                                    }
-                                },
-                                colors = ButtonDefaults.buttonColors(
-                                    containerColor = MaterialTheme.colorScheme.primary,
-                                    contentColor = MaterialTheme.colorScheme.onPrimary
-                                ),
-                                shape = RoundedCornerShape(12.dp),
-                                modifier = Modifier
-                                    .fillMaxWidth()
-                                    .height(48.dp)
-                                    .testTag("offline_retry_button")
-                            ) {
-                                Icon(imageVector = Icons.Default.Refresh, contentDescription = "Retry Connection")
-                                Spacer(modifier = Modifier.width(8.dp))
-                                Text("Retry", fontWeight = FontWeight.Bold)
-                            }
+                        Spacer(modifier = Modifier.height(8.dp))
+
+                        Button(
+                            onClick = {
+                                viewModel.setWebViewError(false)
+                                if (webViewInstance?.url.isNullOrBlank()) {
+                                    webViewInstance?.loadUrl(viewModel.targetUrl)
+                                } else {
+                                    webViewInstance?.reload()
+                                }
+                            },
+                            colors = ButtonDefaults.buttonColors(
+                                containerColor = MaterialTheme.colorScheme.primary,
+                                contentColor = MaterialTheme.colorScheme.onPrimary
+                            ),
+                            shape = RoundedCornerShape(12.dp),
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .height(48.dp)
+                                .testTag("offline_retry_button")
+                        ) {
+                            Icon(imageVector = Icons.Default.Refresh, contentDescription = "Retry Connection")
+                            Spacer(modifier = Modifier.width(8.dp))
+                            Text("Retry", fontWeight = FontWeight.Bold)
                         }
                     }
                 }
             }
-
-            // Solid Navigation Bar spacer so the bottom bar isn't transparently cutting off WebView
-            Spacer(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .windowInsetsBottomHeight(WindowInsets.safeDrawing)
-                    .background(MaterialTheme.colorScheme.background)
-            )
         }
+
+        // Solid Navigation Bar spacer
+        Spacer(
+            modifier = Modifier
+                .fillMaxWidth()
+                .windowInsetsBottomHeight(WindowInsets.safeDrawing)
+                .background(MaterialTheme.colorScheme.background)
+        )
     }
+}

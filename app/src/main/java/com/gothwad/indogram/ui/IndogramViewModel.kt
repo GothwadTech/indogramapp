@@ -10,10 +10,10 @@ import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.ViewModelProvider
 import androidx.lifecycle.viewModelScope
-import com.gothwad.indogram.data.GrixRepository
+import com.gothwad.indogram.data.IndogramRepository
 import com.gothwad.indogram.data.NotificationItem
 import com.gothwad.indogram.data.OfflineDraft
-import com.gothwad.indogram.utils.GrixNotificationHelper
+import com.gothwad.indogram.utils.IndogramNotificationHelper
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
@@ -21,17 +21,27 @@ import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.launch
 
-class GrixViewModel(
+class IndogramViewModel(
     application: Application,
-    private val repository: GrixRepository
+    private val repository: IndogramRepository
 ) : AndroidViewModel(application) {
 
     private val connectivityManager =
         application.getSystemService(Context.CONNECTIVITY_SERVICE) as ConnectivityManager
 
     // Target web resource loaded dynamically from environment configuration
-    val targetUrl: String = com.gothwad.indogram.BuildConfig.TARGET_URL.let {
-        if (it.isNullOrBlank()) "https://indogram.gothwadtech.com" else it
+    val targetUrl: String = run {
+        val raw = com.gothwad.indogram.BuildConfig.TARGET_URL
+        val cleanUrl = if (raw.isNullOrBlank() || raw.contains("grixchat", ignoreCase = true)) {
+            "https://indogram.gothwadtech.com"
+        } else {
+            raw.trim()
+        }
+        if (!cleanUrl.startsWith("http://") && !cleanUrl.startsWith("https://")) {
+            "https://$cleanUrl"
+        } else {
+            cleanUrl
+        }
     }
 
     // Backing flows for states
@@ -158,7 +168,7 @@ class GrixViewModel(
     fun triggerLocalNotification(title: String, message: String) {
         viewModelScope.launch {
             repository.saveNotification(title, message)
-            GrixNotificationHelper.showNotification(getApplication(), title, message)
+            IndogramNotificationHelper.showNotification(getApplication(), title, message)
         }
     }
 
@@ -176,14 +186,14 @@ class GrixViewModel(
 }
 
 // Custom ViewModel Factory
-class GrixViewModelFactory(
+class IndogramViewModelFactory(
     private val application: Application,
-    private val repository: GrixRepository
+    private val repository: IndogramRepository
 ) : ViewModelProvider.Factory {
     @Suppress("UNCHECKED_CAST")
     override fun <T : ViewModel> create(modelClass: Class<T>): T {
-        if (modelClass.isAssignableFrom(GrixViewModel::class.java)) {
-            return GrixViewModel(application, repository) as T
+        if (modelClass.isAssignableFrom(IndogramViewModel::class.java)) {
+            return IndogramViewModel(application, repository) as T
         }
         throw IllegalArgumentException("Unknown ViewModel class")
     }
