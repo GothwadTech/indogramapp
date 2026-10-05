@@ -2,10 +2,12 @@ package com.gothwad.indogram
 
 import android.Manifest
 import android.annotation.SuppressLint
-import android.app.Application
+import android.app.Activity
 import android.content.Context
+import android.content.Intent
 import android.content.pm.PackageManager
 import android.graphics.Bitmap
+import android.net.Uri
 import android.os.Build
 import android.os.Bundle
 import android.view.ViewGroup
@@ -13,26 +15,23 @@ import android.webkit.*
 import android.widget.Toast
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.BackHandler
+import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.compose.setContent
 import androidx.activity.enableEdgeToEdge
-import android.app.Activity
-import android.net.Uri
-import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.animation.*
 import androidx.compose.animation.core.tween
 import androidx.compose.foundation.background
-import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.isSystemInDarkTheme
+import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.filled.Warning
 import androidx.compose.material.icons.filled.Refresh
+import androidx.compose.material.icons.filled.Warning
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.text.font.FontWeight
@@ -45,19 +44,41 @@ import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.lifecycle.viewmodel.compose.viewModel
 import com.gothwad.indogram.data.IndogramDatabase
 import com.gothwad.indogram.data.IndogramRepository
+import com.gothwad.indogram.ui.IndogramJavascriptInterface
 import com.gothwad.indogram.ui.IndogramViewModel
 import com.gothwad.indogram.ui.IndogramViewModelFactory
-import com.gothwad.indogram.ui.IndogramJavascriptInterface
 import com.gothwad.indogram.ui.theme.MyApplicationTheme
 import com.gothwad.indogram.utils.IndogramNotificationHelper
+import java.lang.ref.WeakReference
 
 class MainActivity : ComponentActivity() {
+
+    companion object {
+        private var activeActivity: WeakReference<MainActivity>? = null
+
+        /**
+         * Requirement 3.2:
+         * Pass new FCM token into the WebView via window.setDeviceFCMToken('$token')
+         */
+        fun sendFCMTokenToWebView(token: String) {
+            val activity = activeActivity?.get() ?: return
+            activity.runOnUiThread {
+                activity.injectFCMToken(token)
+            }
+        }
+    }
+
+    private var currentWebView: WebView? = null
+    private var isPageFinishedLoading = false
+    private var pendingNotificationChatId: String? = null
+
     override fun onCreate(savedInstanceState: Bundle?) {
         setTheme(R.style.Theme_MyApplication)
         super.onCreate(savedInstanceState)
+        activeActivity = WeakReference(this)
         enableEdgeToEdge()
 
-        // Setup global WebView ServiceWorker preferences for robust offline background caching
+        // Setup global WebView ServiceWorker preferences for offline background caching
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.N) {
             try {
                 val swController = ServiceWorkerController.getInstance()
@@ -80,19 +101,22 @@ class MainActivity : ComponentActivity() {
             }
         }
 
-        // Create the notification channels on launch
+        // Initialize notification channels on launch
         IndogramNotificationHelper.createNotificationChannel(applicationContext)
 
         // Setup repository
         val database = IndogramDatabase.getDatabase(applicationContext)
         val repository = IndogramRepository(database.indogramDao())
 
-        // Fetch Real Firebase token asynchronously on launch
+        // Check for chatId from launch intent
+        handleIntentForChatId(intent)
+
+        // Initialize Firebase token retrieval asynchronously
         try {
             val hasFirebase = try {
                 if (com.google.firebase.FirebaseApp.getApps(applicationContext).isEmpty()) {
                     val options = com.google.firebase.FirebaseOptions.Builder()
-                        .setApplicationId("1:1234567890:android:e1234567890abcdef") // Fallback placeholder
+                        .setApplicationId("1:1234567890:android:e1234567890abcdef")
                         .setApiKey("placeholder-api-key-to-allow-init")
                         .setProjectId("indogram-placeholder")
                         .build()
@@ -100,7 +124,7 @@ class MainActivity : ComponentActivity() {
                 }
                 true
             } catch (initEx: Exception) {
-                android.util.Log.w("MainActivity", "Could not initialize Firebase dynamically: ${initEx.message}")
+                android.util.Log.w("MainActivity", "Firebase dynamic init warning: ${initEx.message}")
                 false
             }
 
@@ -108,16 +132,17 @@ class MainActivity : ComponentActivity() {
                 com.google.firebase.messaging.FirebaseMessaging.getInstance().token.addOnCompleteListener { task ->
                     if (task.isSuccessful) {
                         val token = task.result
-                        android.util.Log.d("MainActivity", "Successfully retrieved initial FCM token: $token")
-                        val sharedPrefs = getSharedPreferences("indogram_prefs", android.content.Context.MODE_PRIVATE)
+                        android.util.Log.d("MainActivity", "FCM token retrieved: $token")
+                        val sharedPrefs = getSharedPreferences("indogram_prefs", Context.MODE_PRIVATE)
                         sharedPrefs.edit().putString("fcm_token", token).apply()
+                        injectFCMToken(token)
                     } else {
                         android.util.Log.w("MainActivity", "Fetching FCM registration token failed", task.exception)
                     }
                 }
             }
         } catch (e: Exception) {
-            android.util.Log.e("MainActivity", "Firebase initialization or token fetch error", e)
+            android.util.Log.e("MainActivity", "Firebase init exception", e)
         }
 
         setContent {
@@ -134,23 +159,88 @@ class MainActivity : ComponentActivity() {
                     modifier = Modifier.fillMaxSize(),
                     color = MaterialTheme.colorScheme.background
                 ) {
-                    IndogramChatScreen(viewModel = indogramViewModel, isDarkTheme = useDarkTheme)
+                    IndogramChatScreen(
+                        viewModel = indogramViewModel,
+                        isDarkTheme = useDarkTheme,
+                        onWebViewReady = { webView ->
+                            currentWebView = webView
+                        },
+                        onPageLoaded = {
+                            isPageFinishedLoading = true
+                            // If a notification click was queued, execute it now
+                            pendingNotificationChatId?.let { id ->
+                                notifyWebViewChatClick(id)
+                                pendingNotificationChatId = null
+                            }
+                        }
+                    )
                 }
             }
         }
+    }
+
+    override fun onNewIntent(intent: Intent) {
+        super.onNewIntent(intent)
+        setIntent(intent)
+        handleIntentForChatId(intent)
+    }
+
+    private fun handleIntentForChatId(intent: Intent?) {
+        val chatId = intent?.getStringExtra("chatId")
+        if (!chatId.isNullOrEmpty()) {
+            if (isPageFinishedLoading && currentWebView != null) {
+                notifyWebViewChatClick(chatId)
+            } else {
+                pendingNotificationChatId = chatId
+            }
+        }
+    }
+
+    /**
+     * Requirement 3.5:
+     * When user taps notification, call: evaluateJavascript("window.onAndroidNotificationClick('$chatId')", null)
+     */
+    private fun notifyWebViewChatClick(chatId: String) {
+        runOnUiThread {
+            currentWebView?.evaluateJavascript("window.onAndroidNotificationClick('$chatId')", null)
+            android.util.Log.d("MainActivity", "Delivered onAndroidNotificationClick for chatId: $chatId")
+        }
+    }
+
+    /**
+     * Requirement 3.2:
+     * evaluateJavascript("window.setDeviceFCMToken('$token')")
+     */
+    private fun injectFCMToken(token: String) {
+        runOnUiThread {
+            currentWebView?.evaluateJavascript("window.setDeviceFCMToken('$token')", null)
+            android.util.Log.d("MainActivity", "Injected FCM token to WebView")
+        }
+    }
+
+    override fun onDestroy() {
+        super.onDestroy()
+        if (activeActivity?.get() == this) {
+            activeActivity = null
+        }
+        currentWebView = null
     }
 }
 
 @SuppressLint("SetJavaScriptEnabled")
 @Composable
-fun IndogramChatScreen(viewModel: IndogramViewModel, isDarkTheme: Boolean) {
+fun IndogramChatScreen(
+    viewModel: IndogramViewModel,
+    isDarkTheme: Boolean,
+    onWebViewReady: (WebView) -> Unit,
+    onPageLoaded: () -> Unit
+) {
     val context = LocalContext.current
     val isOnline by viewModel.isOnline.collectAsStateWithLifecycle()
     val isError by viewModel.isWebViewError.collectAsStateWithLifecycle()
     val progress by viewModel.loadProgress.collectAsStateWithLifecycle()
 
     var webViewInstance by remember { mutableStateOf<WebView?>(null) }
-
     var customFilePathCallback by remember { mutableStateOf<ValueCallback<Array<Uri>>?>(null) }
 
     val fileChooserLauncher = rememberLauncherForActivityResult(
@@ -185,34 +275,29 @@ fun IndogramChatScreen(viewModel: IndogramViewModel, isDarkTheme: Boolean) {
         }
     }
 
-    // Request setup for all essential device permissions on startup
+    // Requirement 4: Request POST_NOTIFICATIONS (Android 13+), CAMERA, and RECORD_AUDIO at runtime before initiating calls
     val permissionsLauncher = rememberLauncherForActivityResult(
         contract = ActivityResultContracts.RequestMultiplePermissions()
     ) { results ->
-        val deniedPermissions = results.filter { !it.value }.keys
-        if (deniedPermissions.isNotEmpty()) {
-            android.util.Log.d("MainActivity", "User denied some permissions: $deniedPermissions")
+        val denied = results.filter { !it.value }.keys
+        if (denied.isNotEmpty()) {
+            android.util.Log.d("MainActivity", "User denied runtime permissions: $denied")
         }
     }
 
     LaunchedEffect(Unit) {
-        val list = mutableListOf(
+        val permissionsList = mutableListOf(
             Manifest.permission.CAMERA,
             Manifest.permission.RECORD_AUDIO,
             Manifest.permission.ACCESS_FINE_LOCATION,
-            Manifest.permission.ACCESS_COARSE_LOCATION,
-            Manifest.permission.READ_CONTACTS,
-            Manifest.permission.WRITE_CONTACTS,
-            Manifest.permission.READ_PHONE_STATE,
-            Manifest.permission.CALL_PHONE
+            Manifest.permission.ACCESS_COARSE_LOCATION
         )
 
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
-            list.add(Manifest.permission.POST_NOTIFICATIONS)
+            permissionsList.add(Manifest.permission.POST_NOTIFICATIONS)
         }
 
-        // Filter out already granted permissions to avoid redundant prompts
-        val ungranted = list.filter {
+        val ungranted = permissionsList.filter {
             ContextCompat.checkSelfPermission(context, it) != PackageManager.PERMISSION_GRANTED
         }
 
@@ -241,7 +326,6 @@ fun IndogramChatScreen(viewModel: IndogramViewModel, isDarkTheme: Boolean) {
                 .weight(1f)
         ) {
             if (!isError) {
-                // Full-screen WebView sitting precisely in the safe frame
                 AndroidView(
                     factory = { ctx ->
                         WebView(ctx).apply {
@@ -249,20 +333,19 @@ fun IndogramChatScreen(viewModel: IndogramViewModel, isDarkTheme: Boolean) {
                                 ViewGroup.LayoutParams.MATCH_PARENT,
                                 ViewGroup.LayoutParams.MATCH_PARENT
                             )
-                            
-                            // Enable hardware acceleration for high-end rendering
+
                             setLayerType(android.view.View.LAYER_TYPE_HARDWARE, null)
 
-                            // Synchronously compute current connectivity
                             val connectivityManager = ctx.getSystemService(Context.CONNECTIVITY_SERVICE) as android.net.ConnectivityManager
                             val activeNetwork = connectivityManager.activeNetwork
                             val capabilities = connectivityManager.getNetworkCapabilities(activeNetwork)
                             val actuallyOnline = capabilities?.hasCapability(android.net.NetworkCapabilities.NET_CAPABILITY_INTERNET) == true
 
-                            // Performance and database caching parameters
+                            // Requirement 1.1: JavaScript enabled, DomStorage enabled, Database enabled
                             settings.apply {
                                 javaScriptEnabled = true
                                 domStorageEnabled = true
+                                databaseEnabled = true
                                 allowFileAccess = true
                                 allowContentAccess = true
                                 setGeolocationEnabled(true)
@@ -272,13 +355,13 @@ fun IndogramChatScreen(viewModel: IndogramViewModel, isDarkTheme: Boolean) {
                                 mixedContentMode = WebSettings.MIXED_CONTENT_COMPATIBILITY_MODE
                                 textZoom = 100
                                 mediaPlaybackRequiresUserGesture = false
-                                
-                                // Handle dynamic dark mode / light mode selection
+
+                                // Dynamic dark mode selection
                                 if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
                                     try {
                                         isAlgorithmicDarkeningAllowed = isDarkTheme
                                     } catch (e: Exception) {
-                                        android.util.Log.e("MainActivity", "Failed to set algorithmic darkening", e)
+                                        // ignored
                                     }
                                 }
                                 if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
@@ -290,7 +373,7 @@ fun IndogramChatScreen(viewModel: IndogramViewModel, isDarkTheme: Boolean) {
                                             WebSettings.FORCE_DARK_OFF
                                         }
                                     } catch (e: Exception) {
-                                        android.util.Log.e("MainActivity", "Failed to set force dark", e)
+                                        // ignored
                                     }
                                 }
 
@@ -300,28 +383,97 @@ fun IndogramChatScreen(viewModel: IndogramViewModel, isDarkTheme: Boolean) {
                                     WebSettings.LOAD_CACHE_ELSE_NETWORK
                                 }
 
-                                // Bypass Google OAuth "disallowed_useragent" block
+                                // Requirement 1.3: User-Agent includes "IndoGramAndroid" tag for environment detection
                                 val defaultUA = userAgentString
-                                val customizedUA = defaultUA
+                                val cleanedUA = defaultUA
                                     .replace("; wv", "")
                                     .replace("Version/\\d+\\.\\d+\\s".toRegex(), "")
                                     .replace("Version/\\d+\\.\\d+".toRegex(), "")
-                                userAgentString = if (customizedUA.isNotEmpty() && customizedUA != defaultUA) {
-                                    customizedUA
+                                val baseUA = if (cleanedUA.isNotEmpty()) cleanedUA else defaultUA
+                                userAgentString = if (!baseUA.contains("IndoGramAndroid")) {
+                                    "$baseUA IndoGramAndroid"
                                 } else {
-                                    "Mozilla/5.0 (Linux; Android 13; K) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Mobile Safari/537.36"
+                                    baseUA
                                 }
                             }
 
-                            // Enable Cookies including third-party cookies
-                            val webViewCurrent = this
+                            // Enable Cookies
+                            val webViewRef = this
                             try {
                                 CookieManager.getInstance().apply {
                                     setAcceptCookie(true)
-                                    setAcceptThirdPartyCookies(webViewCurrent, true)
+                                    setAcceptThirdPartyCookies(webViewRef, true)
                                 }
                             } catch (e: Exception) {
-                                // Guard against rare system webview cookie manager failures
+                                // ignore
+                            }
+
+                            // Requirement 1.2: WebChromeClient with onPermissionRequest overridden to automatically grant
+                            // android.webkit.PermissionRequest.RESOURCE_AUDIO_CAPTURE and RESOURCE_VIDEO_CAPTURE
+                            webChromeClient = object : WebChromeClient() {
+                                override fun onPermissionRequest(request: PermissionRequest?) {
+                                    if (request == null) return
+                                    try {
+                                        val grantedResources = mutableListOf<String>()
+                                        for (resource in request.resources) {
+                                            if (resource == PermissionRequest.RESOURCE_AUDIO_CAPTURE ||
+                                                resource == PermissionRequest.RESOURCE_VIDEO_CAPTURE ||
+                                                resource == PermissionRequest.RESOURCE_PROTECTED_MEDIA_ID) {
+                                                grantedResources.add(resource)
+                                            }
+                                        }
+                                        if (grantedResources.isNotEmpty()) {
+                                            request.grant(grantedResources.toTypedArray())
+                                        } else {
+                                            request.grant(request.resources)
+                                        }
+                                        android.util.Log.d("MainActivity", "WebRTC permission granted automatically: ${grantedResources.joinToString()}")
+                                    } catch (e: Exception) {
+                                        android.util.Log.e("MainActivity", "Error granting WebRTC permissions", e)
+                                        try {
+                                            request.deny()
+                                        } catch (denyEx: Exception) {
+                                            // ignore
+                                        }
+                                    }
+                                }
+
+                                override fun onProgressChanged(view: WebView?, newProgress: Int) {
+                                    super.onProgressChanged(view, newProgress)
+                                    viewModel.setLoadProgress(newProgress)
+                                }
+
+                                override fun onGeolocationPermissionsShowPrompt(
+                                    origin: String?,
+                                    callback: GeolocationPermissions.Callback?
+                                ) {
+                                    callback?.invoke(origin, true, false)
+                                }
+
+                                override fun onShowFileChooser(
+                                    webView: WebView?,
+                                    filePathCallback: ValueCallback<Array<Uri>>?,
+                                    fileChooserParams: FileChooserParams?
+                                ): Boolean {
+                                    customFilePathCallback?.onReceiveValue(null)
+                                    customFilePathCallback = filePathCallback
+
+                                    try {
+                                        val intent = fileChooserParams?.createIntent()
+                                        if (intent != null) {
+                                            fileChooserLauncher.launch(intent)
+                                        } else {
+                                            filePathCallback?.onReceiveValue(null)
+                                            customFilePathCallback = null
+                                            return false
+                                        }
+                                    } catch (e: Exception) {
+                                        filePathCallback?.onReceiveValue(null)
+                                        customFilePathCallback = null
+                                        return false
+                                    }
+                                    return true
+                                }
                             }
 
                             webViewClient = object : WebViewClient() {
@@ -333,14 +485,21 @@ fun IndogramChatScreen(viewModel: IndogramViewModel, isDarkTheme: Boolean) {
                                 override fun onPageFinished(view: WebView?, url: String?) {
                                     super.onPageFinished(view, url)
                                     viewModel.setLoadProgress(100)
-                                    
-                                    // Inject an observer/evaluator script to capture theme toggle triggers
+                                    onPageLoaded()
+
+                                    // Push cached FCM token if available
+                                    val sharedPrefs = ctx.getSharedPreferences("indogram_prefs", Context.MODE_PRIVATE)
+                                    val cachedToken = sharedPrefs.getString("fcm_token", null)
+                                    if (!cachedToken.isNullOrEmpty()) {
+                                        view?.evaluateJavascript("window.setDeviceFCMToken('$cachedToken')", null)
+                                    }
+
+                                    // Theme observer injection
                                     view?.evaluateJavascript(
                                         """
                                         (function() {
                                             function checkAndUpdateTheme() {
                                                 var isDark = false;
-                                                
                                                 if (document.documentElement.classList.contains('dark') || 
                                                     document.body.classList.contains('dark') ||
                                                     document.documentElement.getAttribute('data-theme') === 'dark' ||
@@ -366,15 +525,13 @@ fun IndogramChatScreen(viewModel: IndogramViewModel, isDarkTheme: Boolean) {
                                                     } catch(e) {}
                                                 }
                                                 
-                                                if (window.IndogramApp && window.IndogramApp.setTheme) {
+                                                if (window.AndroidBridge && window.AndroidBridge.setTheme) {
+                                                    window.AndroidBridge.setTheme(isDark);
+                                                } else if (window.IndogramApp && window.IndogramApp.setTheme) {
                                                     window.IndogramApp.setTheme(isDark);
-                                                } else if (window.GrixApp && window.GrixApp.setTheme) {
-                                                    window.GrixApp.setTheme(isDark);
                                                 }
                                             }
-                                            
                                             checkAndUpdateTheme();
-                                            
                                             try {
                                                 var themeObserver = new MutationObserver(function() {
                                                     checkAndUpdateTheme();
@@ -413,60 +570,15 @@ fun IndogramChatScreen(viewModel: IndogramViewModel, isDarkTheme: Boolean) {
                                 }
                             }
 
-                            webChromeClient = object : WebChromeClient() {
-                                override fun onProgressChanged(view: WebView?, newProgress: Int) {
-                                    super.onProgressChanged(view, newProgress)
-                                    viewModel.setLoadProgress(newProgress)
-                                }
-
-                                override fun onPermissionRequest(request: PermissionRequest?) {
-                                    try {
-                                        request?.grant(request?.resources ?: emptyArray())
-                                    } catch (e: Exception) {
-                                        android.util.Log.e("MainActivity", "WebRTC grant permission error", e)
-                                    }
-                                }
-
-                                override fun onGeolocationPermissionsShowPrompt(
-                                    origin: String?,
-                                    callback: GeolocationPermissions.Callback?
-                                ) {
-                                    callback?.invoke(origin, true, false)
-                                }
-
-                                override fun onShowFileChooser(
-                                    webView: WebView?,
-                                    filePathCallback: ValueCallback<Array<Uri>>?,
-                                    fileChooserParams: FileChooserParams?
-                                ): Boolean {
-                                    customFilePathCallback?.onReceiveValue(null)
-                                    customFilePathCallback = filePathCallback
-                                    
-                                    try {
-                                        val intent = fileChooserParams?.createIntent()
-                                        if (intent != null) {
-                                            fileChooserLauncher.launch(intent)
-                                        } else {
-                                            filePathCallback?.onReceiveValue(null)
-                                            customFilePathCallback = null
-                                            return false
-                                        }
-                                    } catch (e: Exception) {
-                                        filePathCallback?.onReceiveValue(null)
-                                        customFilePathCallback = null
-                                        return false
-                                    }
-                                    return true
-                                }
-                            }
-
-                            // Inject JS push notification / token channel with IndogramApp & legacy GrixApp
-                            val jsInterface = IndogramJavascriptInterface(ctx, viewModel)
-                            addJavascriptInterface(jsInterface, "IndogramApp")
-                            addJavascriptInterface(jsInterface, "GrixApp")
+                            // Requirement 2: JavascriptInterface named "AndroidBridge"
+                            val bridge = IndogramJavascriptInterface(ctx, viewModel)
+                            addJavascriptInterface(bridge, "AndroidBridge")
+                            addJavascriptInterface(bridge, "IndogramApp")
+                            addJavascriptInterface(bridge, "GrixApp")
 
                             loadUrl(viewModel.targetUrl)
                             webViewInstance = this
+                            onWebViewReady(this)
                         }
                     },
                     update = { webView ->
@@ -475,12 +587,12 @@ fun IndogramChatScreen(viewModel: IndogramViewModel, isDarkTheme: Boolean) {
                         } else {
                             WebSettings.LOAD_CACHE_ELSE_NETWORK
                         }
-                        
+
                         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
                             try {
                                 webView.settings.isAlgorithmicDarkeningAllowed = isDarkTheme
                             } catch (e: Exception) {
-                                // ignore 
+                                // ignore
                             }
                         }
                         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
@@ -496,18 +608,6 @@ fun IndogramChatScreen(viewModel: IndogramViewModel, isDarkTheme: Boolean) {
                             }
                         }
 
-                        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.N) {
-                            try {
-                                val swController = ServiceWorkerController.getInstance()
-                                swController.serviceWorkerWebSettings.cacheMode = if (isOnline) {
-                                    WebSettings.LOAD_DEFAULT
-                                } else {
-                                    WebSettings.LOAD_CACHE_ELSE_NETWORK
-                                }
-                            } catch (e: Exception) {
-                                // Ignore failures in updating process-global SW settings
-                            }
-                        }
                         if (isOnline && isError) {
                             viewModel.setWebViewError(false)
                             webView.loadUrl(viewModel.targetUrl)
@@ -518,7 +618,7 @@ fun IndogramChatScreen(viewModel: IndogramViewModel, isDarkTheme: Boolean) {
                         .testTag("indogram_webview_panel")
                 )
 
-                // Fade-out loading spinner overlay on page transitions
+                // Fade-out loading spinner overlay
                 androidx.compose.animation.AnimatedVisibility(
                     visible = progress < 100,
                     enter = fadeIn(animationSpec = tween(200)),

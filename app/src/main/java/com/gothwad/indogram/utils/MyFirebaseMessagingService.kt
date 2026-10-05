@@ -1,6 +1,7 @@
 package com.gothwad.indogram.utils
 
 import android.util.Log
+import com.gothwad.indogram.MainActivity
 import com.gothwad.indogram.data.IndogramDatabase
 import com.gothwad.indogram.data.IndogramRepository
 import com.google.firebase.messaging.FirebaseMessagingService
@@ -16,22 +17,26 @@ class MyFirebaseMessagingService : FirebaseMessagingService() {
     private val serviceScope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
 
     /**
-     * Called when a new FCM token is generated or refreshed.
-     * This token must be saved to backend / web client
+     * Requirement 3.1 & 3.2:
+     * On new token, pass the token into the WebView via evaluateJavascript("window.setDeviceFCMToken('$token')")
      */
     override fun onNewToken(token: String) {
         super.onNewToken(token)
         Log.d(tag, "Refreshed FCM Token: $token")
-        
-        // Save the token locally so Javascript can fetch it via window.IndogramApp.getPushToken()
+
+        // 1. Cache the token in SharedPreferences
         val sharedPrefs = getSharedPreferences("indogram_prefs", MODE_PRIVATE)
         sharedPrefs.edit().putString("fcm_token", token).apply()
-        // Backward compatibility
         getSharedPreferences("grix_prefs", MODE_PRIVATE).edit().putString("fcm_token", token).apply()
+
+        // 2. Deliver directly into the active WebView
+        MainActivity.sendFCMTokenToWebView(token)
     }
 
     /**
-     * Called when a message is received while the app is in the background or foreground.
+     * Requirement 3.3 & 3.4:
+     * In onMessageReceived, build and display a standard Android Notification with NotificationCompat.Builder
+     * Attach a PendingIntent to the notification with a target "chatId" extra.
      */
     override fun onMessageReceived(remoteMessage: RemoteMessage) {
         super.onMessageReceived(remoteMessage)
@@ -54,13 +59,24 @@ class MyFirebaseMessagingService : FirebaseMessagingService() {
         val finalTitle = title ?: "Indogram Message"
         val finalBody = body ?: "You have received a new message."
 
-        Log.d(tag, "Displaying notification: Title=$finalTitle, Body=$finalBody")
+        // Extract target chatId extra
+        val chatId = remoteMessage.data["chatId"]
+            ?: remoteMessage.data["chat_id"]
+            ?: remoteMessage.data["id"]
 
-        // 2. Persist the notification in the local room database so user can see logs inside the app history
+        Log.d(tag, "Displaying notification: Title=$finalTitle, Body=$finalBody, chatId=$chatId")
+
+        // 2. Persist the notification in the local room database for offline logs
         saveNotificationToLocalDb(finalTitle, finalBody)
 
-        // 3. Show native system notification banner
-        IndogramNotificationHelper.showNotification(applicationContext, finalTitle, finalBody)
+        // 3. Show native system notification with PendingIntent containing target chatId
+        IndogramNotificationHelper.showNotification(
+            context = applicationContext,
+            title = finalTitle,
+            message = finalBody,
+            chatId = chatId,
+            payloadJson = remoteMessage.data.toString()
+        )
     }
 
     private fun saveNotificationToLocalDb(title: String, message: String) {
