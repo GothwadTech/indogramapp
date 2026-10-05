@@ -8,7 +8,7 @@
 ![Architecture](https://img.shields.io/badge/Architecture-MVVM%20%2B%20Clean-FF6F00?style=for-the-badge)
 ![License](https://img.shields.io/badge/License-Apache%202.0-blue?style=for-the-badge)
 
-**A modern, offline-first Android messaging client built with Jetpack Compose, Material 3, Room Database, and Firebase Cloud Messaging.**
+**A modern, offline-first Android Telegram client built with Jetpack Compose, Material 3, Room Database, and Firebase Cloud Messaging.**
 
 [Features](#-key-features) • [Tech Stack](#-tech-stack) • [Getting Started](#-getting-started) • [CI/CD & Releases](#-cicd--signing-secrets) • [Architecture](#-architecture)
 
@@ -18,17 +18,18 @@
 
 ## 📱 Overview
 
-**GrixChat** is an open-source Android messaging and communication app designed for fluid performance, offline reliability, and clean aesthetics. It integrates native Jetpack Compose interfaces with advanced WebView caching mechanisms, local Room database persistence, and Firebase Push Notifications.
+**Indogram** is an open-source Swadeshi Telegram client for Android developed by Gothwad Technologies. It loads the Indogram Telegram Web client from `indogram.gothwadtech.com` inside an advanced, hardware-accelerated WebView integrated seamlessly with native Android capabilities including Jetpack Compose UI, Room Database offline persistence, ServiceWorker background caching, and Firebase Push Notifications.
 
 ---
 
 ## ✨ Key Features
 
-- 🎨 **Material 3 & Edge-to-Edge**: Modern UI design following the latest Material Design 3 guidelines, dynamic theming with dark mode support, and seamless edge-to-edge drawing.
-- ⚡ **Offline-First Reliability**: Integrated Room Database along with WebView ServiceWorker caching ensuring fast load times and uninterrupted offline experience.
-- 🔔 **Push Notifications**: Full Firebase Cloud Messaging (FCM) integration with custom Android notification channels for background and heads-up alerts.
-- 🔄 **Modern State Management**: MVVM architecture utilizing Kotlin Coroutines, `StateFlow`, and `collectAsStateWithLifecycle`.
-- 🛡️ **Automated CI/CD Workflows**: Fully automated GitHub Actions for building signed Release APKs, Play Store AAB bundles, and multi-platform distribution packages with strict secret validation.
+- 💬 **Telegram Web Integration**: Direct, high-performance integration with `indogram.gothwadtech.com` providing full Telegram messaging capabilities.
+- 🎨 **Material 3 & Edge-to-Edge**: Modern UI following Material Design 3 guidelines with dynamic theme switching and edge-to-edge layout.
+- ⚡ **Offline-First Reliability**: Local Room database persistence for offline drafts and notification logging, combined with WebView ServiceWorker caching.
+- 🔔 **Push Notifications**: Firebase Cloud Messaging (FCM) integration with dedicated Android notification channels.
+- 🔄 **Modern Architecture**: Clean MVVM architecture utilizing Kotlin Coroutines, `StateFlow`, and `collectAsStateWithLifecycle`.
+- 🛡️ **Automated CI/CD**: Pre-configured GitHub Actions workflows for building signed Release APKs, Debug APKs, and Play Store AAB bundles.
 
 ---
 
@@ -36,11 +37,13 @@
 
 | Layer | Technologies |
 | :--- | :--- |
+| **App Name** | Indogram |
+| **Package Name** | `com.gothwad.indogram` |
+| **Target URL** | `https://indogram.gothwadtech.com` |
 | **Language** | Kotlin 2.x |
-| **UI Framework** | Jetpack Compose (BOM), Material 3, Accompanist |
+| **UI Framework** | Jetpack Compose (BOM), Material 3 |
 | **Architecture** | MVVM (Model-View-ViewModel) + Repository Pattern |
-| **Local Storage** | Room Database + SQLite, Android Keystore |
-| **Networking & API**| Retrofit, OkHttp 4, Moshi (Kotlin codegen) |
+| **Local Storage** | Room Database + SQLite |
 | **Push Notifications** | Firebase Cloud Messaging (FCM) |
 | **Build System** | Gradle 9.3.1 (Kotlin DSL), Android Gradle Plugin (AGP) |
 | **Testing** | Robolectric, Roborazzi, JUnit 4, AndroidX Test |
@@ -50,7 +53,7 @@
 ## 📂 Project Structure
 
 ```text
-GrixChat/
+indogramapp/
 ├── .github/
 │   └── workflows/
 │       ├── build.yml          # Build & Sign APK / AAB on push to main
@@ -59,14 +62,14 @@ GrixChat/
 │   ├── src/
 │   │   ├── main/
 │   │   │   ├── assets/        # App assets & graphics
-│   │   │   ├── java/com/gothwad/grixchat/
+│   │   │   ├── java/com/gothwad/indogram/
 │   │   │   │   ├── data/      # Room Database, DAO, Repository
 │   │   │   │   ├── ui/        # Compose Screens, ViewModels, Theme
 │   │   │   │   └── utils/     # FCM Service, Notification Helpers
 │   │   │   ├── res/           # Layouts, mipmaps, drawables, strings
 │   │   │   └── AndroidManifest.xml
 │   │   └── test/              # Local JVM and Robolectric unit tests
-│   ├── build.gradle.kts       # App module configuration & dependencies
+│   ├── build.gradle.kts       # App module configuration (com.gothwad.indogram)
 │   └── proguard-rules.pro     # ProGuard / R8 rules
 ├── gradle/
 │   ├── libs.versions.toml     # Version catalog
@@ -90,14 +93,15 @@ GrixChat/
 
 1. **Clone the repository:**
    ```bash
-   git clone https://github.com/your-username/GrixChat.git
-   cd GrixChat
+   git clone https://github.com/GothwadTech/indogramapp.git
+   cd indogramapp
    ```
 
 2. **Setup environment variables:**
    ```bash
    cp .env.example .env
    ```
+   By default, `TARGET_URL` is set to `https://indogram.gothwadtech.com`.
 
 3. **Build the Debug APK:**
    ```bash
@@ -131,21 +135,6 @@ To build and sign Release APKs & Play Store AAB bundles automatically, add the f
 
 > **Note**: For security, if `RELEASE_KEYSTORE_BASE64` or `KEYSTORE_PASSWORD` is not configured, the release build step will automatically abort to prevent deploying unverified or improperly signed builds.
 
-### Generating `RELEASE_KEYSTORE_BASE64`
-
-You can convert your local `.jks` or `.keystore` file into Base64 using:
-
-**Linux / macOS:**
-```bash
-base64 -i my-release-key.jks | tr -d '\n' > keystore_base64.txt
-```
-
-**Windows (PowerShell):**
-```powershell
-[Convert]::ToBase64String([IO.File]::ReadAllBytes("my-release-key.jks")) | Set-Content keystore_base64.txt
-```
-Copy the contents of `keystore_base64.txt` and paste it into GitHub Secrets as `RELEASE_KEYSTORE_BASE64`.
-
 ---
 
 ## 🏷️ Triggering a Release
@@ -160,20 +149,8 @@ To trigger an official GitHub Release:
 2. The `Release to GitHub Releases` workflow will automatically:
    - Validate signing secrets.
    - Self-heal Gradle wrapper if needed.
-   - Build signed Release APK, Debug APK, and Play Store AAB.
+   - Build signed Release APK (`Indogram-v1.0.0-Release.apk`), Debug APK (`Indogram-v1.0.0-Debug.apk`), and Play Store AAB (`Indogram-v1.0.0-PlayStore.aab`).
    - Publish a new GitHub Release with generated release notes and downloadable assets.
-
----
-
-## 🤝 Contributing
-
-Contributions, issues, and feature requests are welcome!
-
-1. Fork the Project
-2. Create your Feature Branch (`git checkout -b feature/AmazingFeature`)
-3. Commit your Changes (`git commit -m 'Add some AmazingFeature'`)
-4. Push to the Branch (`git push origin feature/AmazingFeature`)
-5. Open a Pull Request
 
 ---
 

@@ -1,6 +1,6 @@
 {
-  "name": "GrixChat",
-  "description": "Offline-cached GrixChat messaging client with push notifications support.",
+  "name": "Indogram",
+  "description": "Indogram - The privacy-first Swadeshi Telegram client for Android.",
   "requestFramePermissions": [],
   "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
 }
