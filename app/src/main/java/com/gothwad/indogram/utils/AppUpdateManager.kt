@@ -72,7 +72,7 @@ object AppUpdateManager {
                 tagName
             }
 
-            // Find the APK download asset
+            // Find the best APK download asset (prioritizing Release over Debug)
             var apkDownloadUrl = ""
             var apkName = "indogram-update.apk"
             val assets = json.optJSONArray("assets")
@@ -80,10 +80,16 @@ object AppUpdateManager {
                 for (i in 0 until assets.length()) {
                     val asset = assets.getJSONObject(i)
                     val name = asset.optString("name", "")
+                    val url = asset.optString("browser_download_url", "")
                     if (name.endsWith(".apk", ignoreCase = true)) {
-                        apkDownloadUrl = asset.optString("browser_download_url", "")
-                        apkName = name
-                        break
+                        if (name.contains("Release", ignoreCase = true)) {
+                            apkDownloadUrl = url
+                            apkName = name
+                            break // Perfect match found!
+                        } else if (apkDownloadUrl.isEmpty()) {
+                            apkDownloadUrl = url
+                            apkName = name
+                        }
                     }
                 }
             }
