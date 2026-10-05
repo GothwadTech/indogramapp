@@ -18,7 +18,7 @@
 
 ## 📱 Overview
 
-**Indogram** is an open-source Swadeshi Telegram client for Android developed by Gothwad Technologies. It loads the Indogram Telegram Web client from `indogram.gothwadtech.com` inside an advanced, hardware-accelerated WebView integrated seamlessly with native Android capabilities including Jetpack Compose UI, Room Database offline persistence, WebRTC video/audio calling, Firebase Push Notifications, and direct GitHub Release In-App Auto-Updates.
+**Indogram** is an open-source Swadeshi Telegram client for Android developed by Gothwad Technologies. It loads the Indogram Telegram Web client from `indogram.gothwadtech.com` inside an advanced, hardware-accelerated WebView integrated seamlessly with native Android capabilities including Jetpack Compose UI, Room Database offline persistence, WebRTC video/audio calling, Firebase Push Notifications, and direct GiHub Release In-App Auto-Updates.
 
 ---
 
