@@ -30,7 +30,9 @@ class GrixViewModel(
         application.getSystemService(Context.CONNECTIVITY_SERVICE) as ConnectivityManager
 
     // Target web resource loaded dynamically from environment configuration
-    val targetUrl = com.gothwad.grixchat.BuildConfig.TARGET_URL
+    val targetUrl: String = com.gothwad.grixchat.BuildConfig.TARGET_URL.let {
+        if (it.isNullOrBlank()) "https://web.telegram.org/" else it
+    }
 
     // Backing flows for states
     private val _isOnline = MutableStateFlow(true)

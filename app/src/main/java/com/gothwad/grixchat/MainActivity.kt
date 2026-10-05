@@ -598,7 +598,11 @@ fun GrixChatScreen(viewModel: GrixViewModel, isDarkTheme: Boolean) {
                             Button(
                                 onClick = {
                                     viewModel.setWebViewError(false)
-                                    webViewInstance?.reload()
+                                    if (webViewInstance?.url.isNullOrBlank()) {
+                                        webViewInstance?.loadUrl(viewModel.targetUrl)
+                                    } else {
+                                        webViewInstance?.reload()
+                                    }
                                 },
                                 colors = ButtonDefaults.buttonColors(
                                     containerColor = MaterialTheme.colorScheme.primary,
