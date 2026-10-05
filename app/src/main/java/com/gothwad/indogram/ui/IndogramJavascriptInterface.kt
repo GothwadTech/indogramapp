@@ -167,4 +167,56 @@ class IndogramJavascriptInterface(
         }
         viewModel.setDarkThemeOverride(isDark)
     }
+
+    /**
+     * Environment detection method for websites.
+     * JavaScript call: window.AndroidBridge.isAndroidApp();
+     */
+    @JavascriptInterface
+    fun isAndroidApp(): Boolean = true
+
+    /**
+     * Get current Android application version name.
+     * JavaScript call: window.AndroidBridge.getAppVersion();
+     */
+    @JavascriptInterface
+    fun getAppVersion(): String = com.gothwad.indogram.BuildConfig.VERSION_NAME
+
+    /**
+     * Get current Android application version code.
+     * JavaScript call: window.AndroidBridge.getAppVersionCode();
+     */
+    @JavascriptInterface
+    fun getAppVersionCode(): Int = com.gothwad.indogram.BuildConfig.VERSION_CODE
+
+    /**
+     * Trigger GitHub update check from web client.
+     * JavaScript call: window.AndroidBridge.checkForUpdates();
+     */
+    @JavascriptInterface
+    fun checkForUpdates() {
+        (context as? com.gothwad.indogram.MainActivity)?.runOnUiThread {
+            (context as com.gothwad.indogram.MainActivity).triggerManualUpdateCheck()
+        }
+    }
+
+    /**
+     * Check if "Install Unknown Apps" permission is granted.
+     * JavaScript call: window.AndroidBridge.hasInstallPermission();
+     */
+    @JavascriptInterface
+    fun hasInstallPermission(): Boolean {
+        return com.gothwad.indogram.utils.AppUpdateManager.hasInstallPermission(context)
+    }
+
+    /**
+     * Request "Install Unknown Apps" permission from settings.
+     * JavaScript call: window.AndroidBridge.requestInstallPermission();
+     */
+    @JavascriptInterface
+    fun requestInstallPermission() {
+        (context as? android.app.Activity)?.let {
+            com.gothwad.indogram.utils.AppUpdateManager.openInstallPermissionSettings(it)
+        }
+    }
 }

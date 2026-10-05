@@ -14,10 +14,20 @@ android {
     applicationId = "com.gothwad.indogram"
     minSdk = 23
     targetSdk = 35
-    versionCode = 1
-    versionName = "1.0.0"
+    val vCode = (project.findProperty("versionCode") as? String)?.toIntOrNull()
+        ?: System.getenv("VERSION_CODE")?.toIntOrNull()
+        ?: 1
+
+    val vName = (project.findProperty("versionName") as? String)
+        ?: System.getenv("VERSION_NAME")
+        ?: "1.0.0"
+
+    versionCode = vCode
+    versionName = vName
 
     buildConfigField("String", "TARGET_URL", "\"https://indogram.gothwadtech.com\"")
+    buildConfigField("String", "GITHUB_OWNER", "\"GothwadTech\"")
+    buildConfigField("String", "GITHUB_REPO", "\"indogramapp\"")
 
     testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
   }

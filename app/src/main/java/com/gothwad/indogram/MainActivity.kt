@@ -24,7 +24,9 @@ import androidx.compose.animation.core.tween
 import androidx.compose.foundation.background
 import androidx.compose.foundation.isSystemInDarkTheme
 import androidx.compose.foundation.layout.*
+import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Refresh
 import androidx.compose.material.icons.filled.Warning
@@ -41,6 +43,7 @@ import androidx.compose.ui.unit.sp
 import androidx.compose.ui.viewinterop.AndroidView
 import androidx.core.content.ContextCompat
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
+import androidx.lifecycle.lifecycleScope
 import androidx.lifecycle.viewmodel.compose.viewModel
 import com.gothwad.indogram.data.IndogramDatabase
 import com.gothwad.indogram.data.IndogramRepository
@@ -48,7 +51,12 @@ import com.gothwad.indogram.ui.IndogramJavascriptInterface
 import com.gothwad.indogram.ui.IndogramViewModel
 import com.gothwad.indogram.ui.IndogramViewModelFactory
 import com.gothwad.indogram.ui.theme.MyApplicationTheme
+import com.gothwad.indogram.utils.AppReleaseInfo
+import com.gothwad.indogram.utils.AppUpdateManager
 import com.gothwad.indogram.utils.IndogramNotificationHelper
+import kotlinx.coroutines.delay
+import kotlinx.coroutines.launch
+import org.json.JSONObject
 import java.lang.ref.WeakReference
 
 class MainActivity : ComponentActivity() {
@@ -71,6 +79,11 @@ class MainActivity : ComponentActivity() {
     private var currentWebView: WebView? = null
     private var isPageFinishedLoading = false
     private var pendingNotificationChatId: String? = null
+
+    // Auto update state
+    var activeReleaseInfo by mutableStateOf<AppReleaseInfo?>(null)
+    var updateDownloadProgress by mutableStateOf<Int?>(null)
+    var updateStatusMessage by mutableStateOf<String?>(null)
 
     override fun onCreate(savedInstanceState: Bundle?) {
         setTheme(R.style.Theme_MyApplication)
@@ -110,6 +123,12 @@ class MainActivity : ComponentActivity() {
 
         // Check for chatId from launch intent
         handleIntentForChatId(intent)
+
+        // Automatically check GitHub for updates after startup
+        lifecycleScope.launch {
+            delay(2000)
+            triggerManualUpdateCheck(showToastIfLatest = false)
+        }
 
         // Initialize Firebase token retrieval asynchronously
         try {
@@ -174,6 +193,21 @@ class MainActivity : ComponentActivity() {
                             }
                         }
                     )
+
+                    // In-app update dialog
+                    activeReleaseInfo?.let { release ->
+                        AppUpdateDialog(
+                            release = release,
+                            downloadProgress = updateDownloadProgress,
+                            statusMessage = updateStatusMessage,
+                            onUpdateClick = {
+                                startUpdateDownload(release.downloadUrl)
+                            },
+                            onDismiss = {
+                                activeReleaseInfo = null
+                            }
+                        )
+                    }
                 }
             }
         }
@@ -215,6 +249,78 @@ class MainActivity : ComponentActivity() {
         runOnUiThread {
             currentWebView?.evaluateJavascript("window.setDeviceFCMToken('$token')", null)
             android.util.Log.d("MainActivity", "Injected FCM token to WebView")
+        }
+    }
+
+    /**
+     * Manual or JS-triggered check for GitHub updates.
+     */
+    fun triggerManualUpdateCheck(showToastIfLatest: Boolean = true) {
+        lifecycleScope.launch {
+            val release = AppUpdateManager.checkForUpdates(this@MainActivity)
+            if (release != null && release.isNewer) {
+                activeReleaseInfo = release
+                val json = JSONObject().apply {
+                    put("hasUpdate", true)
+                    put("latestVersion", release.version)
+                    put("currentVersion", BuildConfig.VERSION_NAME)
+                    put("downloadUrl", release.downloadUrl)
+                    put("releaseNotes", release.releaseNotes)
+                }
+                runOnUiThread {
+                    currentWebView?.evaluateJavascript(
+                        "if(window.onUpdateCheckResult){window.onUpdateCheckResult($json);}",
+                        null
+                    )
+                }
+            } else {
+                if (showToastIfLatest) {
+                    Toast.makeText(
+                        this@MainActivity,
+                        "Indogram is up to date (v${BuildConfig.VERSION_NAME})",
+                        Toast.LENGTH_SHORT
+                    ).show()
+                }
+                val json = JSONObject().apply {
+                    put("hasUpdate", false)
+                    put("currentVersion", BuildConfig.VERSION_NAME)
+                }
+                runOnUiThread {
+                    currentWebView?.evaluateJavascript(
+                        "if(window.onUpdateCheckResult){window.onUpdateCheckResult($json);}",
+                        null
+                    )
+                }
+            }
+        }
+    }
+
+    /**
+     * Downloads APK from GitHub release and prompts Android Package Installer.
+     */
+    fun startUpdateDownload(downloadUrl: String) {
+        if (!AppUpdateManager.hasInstallPermission(this)) {
+            Toast.makeText(this, "Please allow 'Install unknown apps' permission to update", Toast.LENGTH_LONG).show()
+            AppUpdateManager.openInstallPermissionSettings(this)
+            return
+        }
+
+        lifecycleScope.launch {
+            updateDownloadProgress = 0
+            updateStatusMessage = "Starting download..."
+            AppUpdateManager.downloadAndInstallApk(
+                context = this@MainActivity,
+                downloadUrl = downloadUrl,
+                onProgress = { progress ->
+                    updateDownloadProgress = progress
+                    updateStatusMessage = "Downloading: $progress%"
+                },
+                onError = { err ->
+                    updateDownloadProgress = null
+                    updateStatusMessage = null
+                    Toast.makeText(this@MainActivity, "Update failed: $err", Toast.LENGTH_LONG).show()
+                }
+            )
         }
     }
 
@@ -724,4 +830,121 @@ fun IndogramChatScreen(
                 .background(MaterialTheme.colorScheme.background)
         )
     }
+}
+
+@Composable
+fun AppUpdateDialog(
+    release: AppReleaseInfo,
+    downloadProgress: Int?,
+    statusMessage: String?,
+    onUpdateClick: () -> Unit,
+    onDismiss: () -> Unit
+) {
+    AlertDialog(
+        onDismissRequest = {
+            if (downloadProgress == null) onDismiss()
+        },
+        icon = {
+            Icon(
+                imageVector = Icons.Default.Refresh,
+                contentDescription = "App Update",
+                tint = MaterialTheme.colorScheme.primary,
+                modifier = Modifier.size(36.dp)
+            )
+        },
+        title = {
+            Text(
+                text = "New Update Available!",
+                style = MaterialTheme.typography.titleLarge,
+                fontWeight = FontWeight.Bold
+            )
+        },
+        text = {
+            Column(
+                modifier = Modifier.fillMaxWidth(),
+                verticalArrangement = Arrangement.spacedBy(10.dp)
+            ) {
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.SpaceBetween,
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    Text(
+                        text = "Current: v${BuildConfig.VERSION_NAME}",
+                        style = MaterialTheme.typography.bodyMedium,
+                        color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.7f)
+                    )
+                    Surface(
+                        color = MaterialTheme.colorScheme.primaryContainer,
+                        shape = RoundedCornerShape(8.dp)
+                    ) {
+                        Text(
+                            text = "New: v${release.version}",
+                            style = MaterialTheme.typography.labelLarge,
+                            color = MaterialTheme.colorScheme.onPrimaryContainer,
+                            fontWeight = FontWeight.Bold,
+                            modifier = Modifier.padding(horizontal = 8.dp, vertical = 4.dp)
+                        )
+                    }
+                }
+
+                if (release.releaseNotes.isNotBlank()) {
+                    Text(
+                        text = "What's New:",
+                        style = MaterialTheme.typography.labelMedium,
+                        fontWeight = FontWeight.SemiBold
+                    )
+                    Box(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .heightIn(max = 140.dp)
+                            .background(
+                                color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.5f),
+                                shape = RoundedCornerShape(8.dp)
+                            )
+                            .padding(10.dp)
+                            .verticalScroll(rememberScrollState())
+                    ) {
+                        Text(
+                            text = release.releaseNotes,
+                            style = MaterialTheme.typography.bodySmall,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant
+                        )
+                    }
+                }
+
+                if (downloadProgress != null) {
+                    Spacer(modifier = Modifier.height(4.dp))
+                    Text(
+                        text = statusMessage ?: "Downloading update...",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.primary,
+                        fontWeight = FontWeight.Medium
+                    )
+                    LinearProgressIndicator(
+                        progress = { downloadProgress / 100f },
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .height(8.dp),
+                        strokeCap = androidx.compose.ui.graphics.StrokeCap.Round
+                    )
+                }
+            }
+        },
+        confirmButton = {
+            Button(
+                onClick = onUpdateClick,
+                enabled = downloadProgress == null
+            ) {
+                Text(if (downloadProgress != null) "Downloading..." else "Update Now")
+            }
+        },
+        dismissButton = {
+            if (downloadProgress == null) {
+                TextButton(onClick = onDismiss) {
+                    Text("Later")
+                }
+            }
+        }
+    )
 }
