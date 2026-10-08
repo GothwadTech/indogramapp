@@ -5,7 +5,7 @@ import androidx.compose.ui.graphics.Color
 // Indogram Premium Theme Colors (Pure White / Deep Black / Clean Accents)
 val IndoPrimary = Color(0xFFFFFFFF)       // Pure White
 val IndoSecondary = Color(0xFFE0E0E0)     // Clean Light Grey
-val IndoDarkBackground = Color(0xFF202124) // Google Dark Grey Background
+val IndoDarkBackground = Color(0xFF212121) // Premium Dark Grey Background (#212121)
 val IndoSurfaceDark = Color(0xFF2D2E30)    // Slightly lighter dark grey for elevated surfaces
 val IndoSurfaceCard = Color(0xFF35363A)    // Cards inside the dark grey surface
 val IndoAccent = Color(0xFFFFFFFF)         // White Accent
